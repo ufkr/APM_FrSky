@@ -27,6 +27,12 @@ extern const AP_HAL::HAL& hal;
 uint32_t GCS_MAVLINK::last_radio_status_remrssi_ms;
 uint8_t GCS_MAVLINK::mavlink_active = 0;
 
+#if FRSKY_TELEM_ENABLED == ENABLED
+// variables to pass mav msg data to other libraries
+mavlink_statustext_t GCS_MAVLINK::gcs_message_data;
+bool GCS_MAVLINK::gcs_message_flag;
+#endif
+
 GCS_MAVLINK::GCS_MAVLINK() :
     waypoint_receive_timeout(5000)
 {
@@ -631,6 +637,15 @@ GCS_MAVLINK::send_text_P(gcs_severity severity, const prog_char_t *str)
     }
     if (i < sizeof(m.text)) m.text[i] = 0;
     send_text(severity, (const char *)m.text);
+    
+#if FRSKY_TELEM_ENABLED == ENABLED
+    // copy message to buffer to share with other libs
+    // static flags, to allow for direct class update from device drivers
+    mavlink_statustext_t *s = &gcs_message_data;
+    s->severity = (uint8_t)severity;
+    strncpy((char *)s->text, (const char *)m.text, sizeof(s->text)); //possibly need to strip CR/LF
+    gcs_message_flag = 1;
+#endif
 }
 
 
@@ -1171,11 +1186,11 @@ void GCS_MAVLINK::send_ahrs(AP_AHRS &ahrs)
  */
 void GCS_MAVLINK::send_statustext_all(gcs_severity severity, const prog_char_t *fmt, ...)
 {
+    char msg2[50];
     for (uint8_t i=0; i<MAVLINK_COMM_NUM_BUFFERS; i++) {
         if ((1U<<i) & mavlink_active) {
             mavlink_channel_t chan = (mavlink_channel_t)(MAVLINK_COMM_0+i);
             if (comm_get_txspace(chan) >= MAVLINK_NUM_NON_PAYLOAD_BYTES + MAVLINK_MSG_ID_STATUSTEXT_LEN) {
-                char msg2[50];
                 va_list arg_list;
                 va_start(arg_list, fmt);
                 hal.util->vsnprintf_P((char *)msg2, sizeof(msg2), fmt, arg_list);
@@ -1186,6 +1201,15 @@ void GCS_MAVLINK::send_statustext_all(gcs_severity severity, const prog_char_t *
             }
         }
     }
+#if FRSKY_TELEM_ENABLED == ENABLED
+    // copy message to buffer to share with other libs
+    // static flags, to allow for direct class update from device drivers
+    mavlink_statustext_t *s = &gcs_message_data;
+    s->severity = (uint8_t)severity;
+    strncpy((char *)s->text, msg2, sizeof(s->text));
+    gcs_message_flag = 1;
+    // would be better to pass using something like frsky_telemetry.queue_message(severity, str);
+#endif
 }
 
 // report battery2 state

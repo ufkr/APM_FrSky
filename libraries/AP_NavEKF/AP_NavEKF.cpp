@@ -4994,6 +4994,27 @@ void NavEKF::send_status_report(mavlink_channel_t chan)
 
 }
 
+// generate an ekf_status_report
+void NavEKF::get_ekf_status_report(mavlink_ekf_status_report_t &status_report) const
+{
+    // get variances
+    float velVar, posVar, hgtVar, tasVar;
+    Vector3f magVar;
+    Vector2f offset;
+    getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+
+    // populate ekf_status_report
+    mavlink_ekf_status_report_t ekf_status_report;
+	ekf_status_report.velocity_variance = velVar;
+    ekf_status_report.pos_horiz_variance = posVar;
+    ekf_status_report.pos_vert_variance = hgtVar;
+    ekf_status_report.compass_variance = magVar.length();
+    ekf_status_report.terrain_alt_variance = tasVar;
+	// ekf_status_report flags not currenlty populated/used
+
+    status_report = ekf_status_report;
+}
+
 // Check arm status and perform required checks and mode changes
 void NavEKF::performArmingChecks()
 {
