@@ -234,6 +234,9 @@ public:
     // send an EKF_STATUS_REPORT message to GCS
     void send_status_report(mavlink_channel_t chan);
 
+    // generate an ekf_status_report
+    void get_status_report(mavlink_ekf_status_report_t &ekf_status_report) const;
+ 
     // provides the height limit to be observed by the control loops
     // returns false if no height limiting is required
     // this is needed to ensure the vehicle does not fly too high when using optical flow navigation

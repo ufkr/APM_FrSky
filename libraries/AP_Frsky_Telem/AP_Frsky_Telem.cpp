@@ -26,17 +26,14 @@ extern const AP_HAL::HAL& hal;
 AP_Frsky_Telem::msg_t _msg;
 
 //constructor
-AP_Frsky_Telem::AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng, const AP_InertialNav_NavEKF &inav) :
+AP_Frsky_Telem::AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng, const AP_InertialNav_NavEKF &inav, const AC_Fence &fence, const AP_RPM &rpm_sensor, const AP_Motors &motors) :
     _ahrs(ahrs),
     _battery(battery),
     _rng(rng),
     _inav(inav),
-    _port(NULL),
-    _protocol(),
-    _crc(0),
-    _ap(),
-    _current_height(0.0f),
-    _gps()
+    _fence(fence),
+    _rpm_sensor(rpm_sensor),
+    _motors(motors)
     {}
 
 /*
@@ -62,7 +59,6 @@ void AP_Frsky_Telem::init(const AP_SerialManager &serial_manager, const char *fi
         _params.mav_type = mav_type; // frame type (see MAV_TYPE in Mavlink definition file common.h)
         _params.fs_batt_voltage = fs_batt_voltage; // failsafe battery voltage in volts
         _params.fs_batt_mah = fs_batt_mah; // failsafe reserve capacity in mAh
-        _ap.control_mode = control_mode; // flight mode
         _ap.value = ap_value; // ap bit-field
         _ap.control_sensors_present = control_sensors_present;
         _ap.control_sensors_enabled = control_sensors_enabled;
@@ -71,6 +67,8 @@ void AP_Frsky_Telem::init(const AP_SerialManager &serial_manager, const char *fi
         _ap.home_bearing = home_bearing;
     }
 
+    _ap.control_mode = control_mode; // flight mode
+    
     if (_port != NULL) {
         hal.scheduler->register_io_process(FUNCTOR_BIND_MEMBER(&AP_Frsky_Telem::tick, void));
         // we don't want flow control for either protocol
@@ -107,14 +105,14 @@ void AP_Frsky_Telem::init(const AP_SerialManager &serial_manager, uint8_t *contr
 void AP_Frsky_Telem::send_SPort_Passthrough(void)
 {
     static bool chunk_sent = true; // set to false whenever we are not done sending a chunk of mavlink message
-    static bool send_attiandrng = false;
+    static bool send_attitude = false; // send_attiandrng
     static bool send_latitude = false;
     static uint32_t timer_params = 0;
     static uint32_t timer_ap_status = 0;
     static uint32_t timer_batt = 0;
     static uint32_t timer_gps_status = 0;
     static uint32_t timer_home = 0;
-    static uint32_t timer_velandyaw = 0;
+    static uint32_t timer_velandrng = 0; // timer_velandyaw
     static uint32_t timer_gps_latlng = 0;
     static uint32_t timer_vario = 0;
     static uint32_t timer_alt = 0;
@@ -142,12 +140,13 @@ void AP_Frsky_Telem::send_SPort_Passthrough(void)
     }
 
     if ((prev_byte == START_STOP_SPORT) && (new_byte == SENSOR_ID_28)) { // byte 0x7E is the header of each poll request
-        if (send_attiandrng) { // skip other data, send attitude (roll, pitch) and range only this iteration
-            send_attiandrng = false; // next iteration, check if we should send something other
+        if (send_attitude) { // skip other data, send attitude // send_attiandrng // (roll, pitch) and range only this iteration
+            send_attitude = false; // next iteration, check if we should send something other // send_attiandrng
         } else { // check if there's other data to send
-            send_attiandrng = true; // next iteration, send attitude b/c it needs frequent updates to remain smooth
-            // build mavlink message queue for control_sensors flags
+            send_attitude = true; // next iteration, send attitude b/c it needs frequent updates to remain smooth // send_attiandrng
+            // build mavlink message queue for control_sensors flags AND EKF_STATUSCHECK
             control_sensors_check();
+            ekf_status_check();
             // if there's any message in the queue, start sending them chunk by chunk; three times each chunk
             if ((_msg.sent_idx != _msg.queued_idx) || (!chunk_sent)) {
                 send_data(DIY_FIRST_ID, get_next_msg_chunk(&chunk_sent));
@@ -175,9 +174,9 @@ void AP_Frsky_Telem::send_SPort_Passthrough(void)
                 send_data(DIY_FIRST_ID+4, calc_home());
                 timer_home = AP_HAL::millis();
                 return;
-            } else if ((now - timer_velandyaw) > 500) {
-                send_data(DIY_FIRST_ID+5, calc_velandyaw());
-                timer_velandyaw = AP_HAL::millis();
+            } else if ((now - timer_velandrng) > 500) { // timer_velandyaw
+                send_data(DIY_FIRST_ID+5, calc_velandrng()); // calc_velandyaw
+                timer_velandrng = AP_HAL::millis(); // timer_velandyaw
                 return;
             } else if ((now - timer_gps_latlng) > 1000) {
                 send_data(GPS_LONG_LATI_FIRST_ID, calc_gps_latlng(&send_latitude)); // gps latitude or longitude
@@ -199,8 +198,8 @@ void AP_Frsky_Telem::send_SPort_Passthrough(void)
                 return;
             }
         }
-        // if nothing else needed to be sent, send attitude (roll, pitch) and range data
-        send_data(DIY_FIRST_ID+6, calc_attiandrng());
+        // if nothing else needed to be sent, send attitude // (roll, pitch) and range data
+        send_data(DIY_FIRST_ID+6, calc_attitude()); // calc_attiandrng
     }
 }
 
@@ -565,8 +564,64 @@ void AP_Frsky_Telem::control_sensors_check(void)
         } else if ((_control_sensors_flags & MAV_SYS_STATUS_AHRS) > 0) {
             queue_message(MAV_SEVERITY_CRITICAL, "Bad AHRS");
             control_sensors_timer = now;
+        } else if ((_control_sensors_flags & MAV_SYS_STATUS_SENSOR_RC_RECEIVER) > 0) {
+            queue_message(MAV_SEVERITY_CRITICAL, "NO RC Receiver");
+            control_sensors_timer = now;
         }
     }
+}
+
+/*
+ * add ekf_status information to message cue, normally passed as ekf_status_report mavlink messages to the GCS, for transmission through FrSky link
+ * (for XPort protocol)
+ */
+void AP_Frsky_Telem::ekf_status_check(void)
+{
+    static uint32_t ekf_status_timer = 0;
+    mavlink_ekf_status_report_t ekf_status_report;
+    _ahrs.get_ekf_status_report(ekf_status_report);
+
+    uint32_t now = AP_HAL::millis();
+    if ((now - ekf_status_timer) > 10000) { // prevent repeating any ekf_status_report messages unless 10 seconds have passed
+        // multiple errors can be reported at a time. Same setup as Mission Planner.
+        if (ekf_status_report.velocity_variance >= 1) {
+            queue_message(MAV_SEVERITY_CRITICAL, "Error velocity variance");
+            ekf_status_timer = now;
+        }
+
+        if (ekf_status_report.pos_horiz_variance >= 1) {
+            queue_message(MAV_SEVERITY_CRITICAL, "Error pos horiz variance");
+            ekf_status_timer = now;
+        }
+
+        if (ekf_status_report.pos_vert_variance >= 1) {
+            queue_message(MAV_SEVERITY_CRITICAL, "Error pos vert variance");
+            ekf_status_timer = now;
+        }
+
+        if (ekf_status_report.compass_variance >= 1) {
+            queue_message(MAV_SEVERITY_CRITICAL, "Error compass variance");
+            ekf_status_timer = now;
+        }
+
+        if (ekf_status_report.terrain_alt_variance >= 1) {
+            queue_message(MAV_SEVERITY_CRITICAL, "Error terrain alt variance");
+            ekf_status_timer = now;
+        }
+    }
+    /*
+    flags found in AP_NavEKF/AP_Nav_Common.h | the flags are not used in Misison Planner yet
+    ekf_status_report.flags.attitude                // 0 - true if attitude estimate is valid
+    ekf_status_report.flags.horiz_vel                // 1 - true if horizontal velocity estimate is valid
+    ekf_status_report.flags.vert_vel                // 2 - true if the vertical velocity estimate is valid
+    ekf_status_report.flags.horiz_pos_rel            // 3 - true if the relative horizontal position estimate is valid
+    ekf_status_report.flags.horiz_pos_abs            // 4 - true if the absolute horizontal position estimate is valid
+    ekf_status_report.flags.vert_pos                // 5 - true if the vertical position estimate is valid
+    ekf_status_report.flags.terrain_alt                // 6 - true if the terrain height estimate is valid
+    ekf_status_report.flags.const_pos_mode            // 7 - true if we are in const position mode
+    ekf_status_report.flags.pred_horiz_pos_rel        // 8 - true if filter expects it can produce a good relative horizontal position estimate - used before takeoff
+    ekf_status_report.flags.pred_horiz_pos_abs        // 9 - true if filter expects it can produce a good absolute horizontal position estimate - used before takeoff
+    */
 }
 
 /*
@@ -693,6 +748,10 @@ uint32_t AP_Frsky_Telem::calc_ap_status(void)
     ap_status |= (uint8_t)(AP_Notify::flags.armed)<<8; // armed flag
     ap_status |= (uint8_t)(AP_Notify::flags.failsafe_battery)<<9; // battery failsafe flag
     ap_status |= (uint8_t)(AP_Notify::flags.ekf_bad)<<10; // bad ekf flag
+    ap_status |= (uint8_t)(_fence.get_breaches() & 0x3)<<11; // fence breach flags (1:alt breach, 2:circular breach, 3:both)
+    // 4 bit gap here (reserved)
+    ap_status |= prep_number(roundf(_rpm_sensor.get_rpm(0) * 0.01f), 2, 1)<<17; // 100s of RPM
+    ap_status |= (((uint8_t)roundf(_motors.get_throttle() * 0.1f)) & 0x7F)<<25; // throttle %
     return ap_status;
 }
 
@@ -722,31 +781,33 @@ uint32_t AP_Frsky_Telem::calc_home(void)
 }
 
 /*
- * prepare velocity and yaw data
+ * prepare velocity and range data // yaw
  * for FrSky SPort Passthrough (OpenTX) protocol (X-receivers)
  */
-uint32_t AP_Frsky_Telem::calc_velandyaw(void)
+uint32_t AP_Frsky_Telem::calc_velandrng(void) // calc_velandyaw
 {
-    uint32_t velandyaw = 0;
+    uint32_t velandrng = 0; // velandyaw
 
-    velandyaw |= prep_number(roundf(_inav.get_velocity_z() * 0.1f), 2, 1); // vertical velocity in dm/s
-    velandyaw |= prep_number(roundf(_inav.get_velocity_xy() * 0.1f), 2, 1)<<9; // horizontal velocity in dm/s
-    velandyaw |= ((uint16_t)roundf(_ahrs.yaw_sensor * 0.05f) & 0x7FF)<<17; // yaw from [0;36000] centidegrees to .2 degree increments (already unsigned)
-    return velandyaw;
+    velandrng |= prep_number(roundf(_inav.get_velocity_z() * 0.1f), 2, 1); // vertical velocity in dm/s // velandyaw
+    velandrng |= prep_number(roundf(_inav.get_velocity_xy() * 0.1f), 2, 1)<<9; // horizontal velocity in dm/s // velandyaw
+    velandrng |= prep_number(_rng.distance_cm(), 3, 1)<<17; // rangefinder measurement in cm // attiandrng <<21
+    velandrng |= _rng.status()<<28; // rangefinder status (0:NotConnected,1:NoData,2:_OutOfRangeLow,3:OutOfRangeHigh,4:Good)
+    velandrng |= _rng.pre_arm_check()<<31; // prearm check flag (set to true if rangefinder prearm passed)
+    return velandrng;
 }
 
 /*
- * prepare attitude (roll, pitch) and range data
+ * prepare attitude // (roll, pitch) and range data
  * for FrSky SPort Passthrough (OpenTX) protocol (X-receivers)
  */
-uint32_t AP_Frsky_Telem::calc_attiandrng(void)
+uint32_t AP_Frsky_Telem::calc_attitude(void) // calc_attiandrng
 {
-    uint32_t attiandrng = 0;
+    uint32_t attitude = 0; // attiandrng
 
-    attiandrng = ((uint16_t)roundf((_ahrs.roll_sensor + 18000) * 0.05f) & 0x7FF); // roll from [-18000;18000] centidegrees to unsigned .2 degree increments
-    attiandrng |= ((uint16_t)roundf((_ahrs.pitch_sensor + 9000) * 0.05f) & 0x3FF)<<11; // pitch from [-18000;18000] centidegrees to unsigned .2 degree increments
-    attiandrng |= prep_number(_rng.distance_cm(), 3, 1)<<21; // rangefinder measurement in cm
-    return attiandrng;
+    attitude = ((uint16_t)roundf((_ahrs.roll_sensor + 18000) * 0.05f) & 0x7FF); // roll from [-18000;18000] centidegrees to unsigned .2 degree increments // attiandrng
+    attitude |= ((uint16_t)roundf((_ahrs.pitch_sensor + 9000) * 0.05f) & 0x3FF)<<11; // pitch from [-18000;18000] centidegrees to unsigned .2 degree increments // attiandrng
+    attitude |= ((uint16_t)roundf(_ahrs.yaw_sensor * 0.05f) & 0x7FF)<<21; // yaw from [0;36000] centidegrees to .2 degree increments (already unsigned) // velandyaw <<17
+    return attitude;
 }
 
 /*

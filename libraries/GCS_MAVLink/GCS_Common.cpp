@@ -1325,6 +1325,10 @@ void GCS_MAVLINK::send_statustext(MAV_SEVERITY severity, uint8_t dest_bitmask, c
         dataflash_p->Log_Write_Message(text);
     }
 
+#if FRSKY_TELEM_ENABLED == ENABLED
+    AP_Frsky_Telem::queue_message(severity, text);
+#endif
+    
     // filter destination ports to only allow active ports.
     statustext_t statustext{};
     statustext.bitmask = (mavlink_active | chan_is_streaming) & dest_bitmask;

@@ -501,6 +501,9 @@ void Copter::one_hz_loop()
     terrain_logging();
 
     adsb.set_is_flying(!ap.land_complete);
+    
+    // update status of control sensors (usually passed in sys_status mavlink messages)
+    control_sensors_check();
 }
 
 // called at 50hz

@@ -845,6 +845,23 @@ void NavEKF::send_status_report(mavlink_channel_t chan)
     }
 }
 
+// generate an ekf_status_report
+void NavEKF::get_status_report(mavlink_ekf_status_report_t &status_report) const
+{
+    // get variances
+    float velVar, posVar, hgtVar, tasVar;
+    Vector3f magVar;
+    Vector2f offset;
+    getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+
+    // populate ekf_status_report
+    status_report.velocity_variance = velVar;
+    status_report.pos_horiz_variance = posVar;
+    status_report.pos_vert_variance = hgtVar;
+    status_report.compass_variance = magVar.length();
+    status_report.terrain_alt_variance = tasVar;
+}
+ 
 // provides the height limit to be observed by the control loops
 // returns false if no height limiting is required
 // this is needed to ensure the vehicle does not fly too high when using optical flow navigation

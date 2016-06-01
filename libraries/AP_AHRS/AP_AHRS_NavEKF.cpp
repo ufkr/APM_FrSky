@@ -1217,6 +1217,21 @@ void AP_AHRS_NavEKF::send_ekf_status_report(mavlink_channel_t chan)
     }    
 }
 
+// get the EKF_STATUS_REPORT
+void AP_AHRS_NavEKF::get_ekf_status_report(mavlink_ekf_status_report_t &ekf_status_report) const
+{
+    switch (active_EKF_type()) {
+#if AP_AHRS_WITH_EKF1
+    case EKF_TYPE1:
+        return EKF1.get_status_report(ekf_status_report);
+#endif
+
+    case EKF_TYPE2:
+    default:
+        return EKF2.get_status_report(ekf_status_report);
+    }
+}
+ 
 // passes a reference to the location of the inertial navigation origin
 // in WGS-84 coordinates
 // returns a boolean true when the inertial navigation origin has been set
