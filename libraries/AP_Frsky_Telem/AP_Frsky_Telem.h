@@ -26,50 +26,49 @@
 #define MSG_BUFFER_LENGTH       5 // size of the message buffer queue (number of messages waiting to be sent)
 
 /* 
-for FrSky D protocol (D-receivers)
+ for FrSky D protocol (D-receivers)
 */
-// FrSky sensor hub data IDs
-#define DATA_ID_GPS_ALT_BP     0x01
-#define DATA_ID_TEMP1          0x02
-#define DATA_ID_FUEL           0x04
-#define DATA_ID_TEMP2          0x05
-#define DATA_ID_GPS_ALT_AP     0x09
-#define DATA_ID_BARO_ALT_BP    0x10
-#define DATA_ID_GPS_SPEED_BP   0x11
-#define DATA_ID_GPS_LONG_BP    0x12
-#define DATA_ID_GPS_LAT_BP     0x13
-#define DATA_ID_GPS_COURS_BP   0x14
-#define DATA_ID_GPS_SPEED_AP   0x19
-#define DATA_ID_GPS_LONG_AP    0x1A
-#define DATA_ID_GPS_LAT_AP     0x1B
-#define DATA_ID_BARO_ALT_AP    0x21
-#define DATA_ID_GPS_LONG_EW    0x22
-#define DATA_ID_GPS_LAT_NS     0x23
-#define DATA_ID_CURRENT        0x28
-#define DATA_ID_VFAS           0x39
-
-#define START_STOP_D           0x5E
-#define BYTESTUFF_D            0x5D
+// FrSky sensor hub data IDs (1 byte) */
+#define GPS_ALT_BP_ID             0x01
+#define TEMP1_ID                  0x02
+#define FUEL_ID                   0x04
+#define TEMP2_ID                  0x05
+#define GPS_ALT_AP_ID             0x09
+#define BARO_ALT_BP_ID            0x10
+#define GPS_SPEED_BP_ID           0x11
+#define GPS_LONG_BP_ID            0x12
+#define GPS_LAT_BP_ID             0x13
+#define GPS_COURS_BP_ID           0x14
+#define GPS_SPEED_AP_ID           0x19
+#define GPS_LONG_AP_ID            0x1A
+#define GPS_LAT_AP_ID             0x1B
+#define BARO_ALT_AP_ID            0x21
+#define GPS_LONG_EW_ID            0x22
+#define GPS_LAT_NS_ID             0x23
+#define CURRENT_ID                0x28
+#define VFAS_ID                   0x39
 
 /* 
-for FrSky SPort and SPort Passthrough (OpenTX) protocols (X-receivers)
+ for FrSky SPort and SPort Passthrough (OpenTX) protocols (X-receivers)
 */
-// FrSky Sensor IDs
-#define SENSOR_ID_VARIO        0x00 // Sensor ID  0
-#define SENSOR_ID_FAS          0x22 // Sensor ID  2
-#define SENSOR_ID_GPS          0x83 // Sensor ID  3
-#define SENSOR_ID_SP2UR        0xC6 // Sensor ID  6
-#define SENSOR_ID_28           0x1B // Sensor ID 28
+// FrSky PRIM IDs (1 byte)
+#define DATA_FRAME                0x10
 
-// FrSky data IDs
+#define START_STOP_SPORT       0x7E
+
+// FrSky DATA IDs (2 bytes)
 #define ALT_FIRST_ID           0x0100
 #define VARIO_FIRST_ID         0x0110
 #define VFAS_FIRST_ID          0x0210
 #define GPS_LONG_LATI_FIRST_ID 0x0800
 #define DIY_FIRST_ID           0x5000
 
-#define START_STOP_SPORT       0x7E
-#define BYTESTUFF_SPORT        0x7D
+// FrSky Sensor IDs
+#define SENSOR_ID_VARIO        0x00 // Sensor ID  0
+#define SENSOR_ID_FAS          0x22 // Sensor ID  2
+#define SENSOR_ID_GPS          0x83 // Sensor ID  3
+#define SENSOR_ID_SP2UR        0xC6 // Sensor ID  6
+#define SENSOR_ID_28           0x1B // Sensor ID 28
 
 class AP_Frsky_Telem
 {
