@@ -123,8 +123,6 @@ private:
         int32_t *home_bearing;
     } _ap;
     
-    float _current_height; // in centimeters above home
-    
     struct
     {
         char lat_ns, lon_ew;

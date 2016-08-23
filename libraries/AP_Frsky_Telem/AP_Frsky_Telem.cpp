@@ -189,7 +189,7 @@ void AP_Frsky_Telem::send_SPort_Passthrough(void)
                 timer_vario = AP_HAL::millis();
                 return;
             } else if ((now - timer_alt) > 1000) {
-                send_data(ALT_FIRST_ID, (int32_t)_current_height); // altitude in cm above home position
+                send_data(ALT_FIRST_ID, (int32_t)_inav.get_altitude()); // altitude in cm above home position
                 timer_alt = AP_HAL::millis();
                 return;
             } else if ((now - timer_vfas) > 1000) {
@@ -766,15 +766,7 @@ uint32_t AP_Frsky_Telem::calc_home(void)
     // distance between vehicle and home location in meters
     home |= prep_number(roundf(*_ap.home_distance * 0.01f), 3, 2);
     // altitude between vehicle and home location in decimeters
-    Location current_loc;
-    if  (_ahrs.get_position(current_loc)) {
-        if (current_loc.flags.relative_alt) {
-            _current_height = current_loc.alt;
-        } else {
-            _current_height = current_loc.alt - _ahrs.get_home().alt;
-        }
-    }
-    home |= prep_number(roundf(_current_height * 0.1f), 3, 2)<<12;
+    home |= prep_number(roundf(_inav.get_altitude() * 0.1f), 3, 2)<<12;
     // angle between vehicle and home location (relative to North) in 3 degree increments
     home |= (((uint8_t)roundf(*_ap.home_bearing * 0.00333f)) & 0x7F)<<25;
     return home;
@@ -881,19 +873,8 @@ uint16_t AP_Frsky_Telem::prep_number(int32_t number, uint8_t digits, uint8_t pow
  */
 void AP_Frsky_Telem::calc_nav_alt(void)
 {
-    Location current_loc;
-    float current_height; // in centimeters above home
-    if  (_ahrs.get_position(current_loc)) {
-        if (current_loc.flags.relative_alt) {
-            current_height = current_loc.alt*0.01f;
-        } else {
-            current_height = (current_loc.alt - _ahrs.get_home().alt)*0.01f;
-        }
-    } else {
-        current_height = 0;
-    }
-    _gps.alt_nav_meters = (int16_t)current_height;
-    _gps.alt_nav_cm = (current_height - _gps.alt_nav_meters) * 100;
+    _gps.alt_nav_meters = (int16_t)_inav.get_altitude();
+    _gps.alt_nav_cm = (_inav.get_altitude() - _gps.alt_nav_meters) * 100;
 } 
 
 /*
